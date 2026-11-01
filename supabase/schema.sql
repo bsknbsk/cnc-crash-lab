@@ -34,3 +34,19 @@ update repair_costs set habit = 'Retract Z to clearance before any XY rapid, and
 update repair_costs set habit = 'Confirm the spindle is running at the programmed S before the first feed move, and watch the spindle load meter at the first plunge.' where crash_type = 'FEED_SPINDLE_OFF';
 
 select crash_type, habit from repair_costs;
+
+-- Exam faults table. Run in the Supabase SQL editor.
+-- The server writes with SUPABASE_SECRET_KEY (bypasses RLS);
+-- browser anon access stays blocked by the enabled RLS policy gap.
+create table if not exists public.exam_faults (
+  id bigint generated always as identity primary key,
+  crash_type text not null,
+  base_program text not null,
+  faulty_program text not null,
+  changed_line integer not null,
+  hint text not null,
+  model text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.exam_faults enable row level security;

@@ -65,6 +65,18 @@ export default function Home() {
     { line: number; message: string }[] | null
   >(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [tab, setTab] = useState<"practice" | "exam">("practice");
+  const [examFault, setExamFault] = useState<{
+    changed_line: number;
+    hint: string;
+    model: string;
+    crash_type: string;
+  } | null>(null);
+  const [examNote, setExamNote] = useState<{
+    text: string;
+    ok: boolean;
+  } | null>(null);
+  const [loadingExam, setLoadingExam] = useState(false);
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -151,6 +163,7 @@ export default function Home() {
     setScanning(false);
     setUnclearLines(null);
     setVisionErrors(null);
+    setExamNote(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -168,6 +181,7 @@ export default function Home() {
     setScanning(false);
     setUnclearLines(null);
     setVisionErrors(null);
+    setExamNote(null);
   };
 
   const timerRef = useRef<number | null>(null);
@@ -259,7 +273,14 @@ export default function Home() {
     sessionCodeRef.current = code;
     playSteps(steps, () => {
       nextLineRef.current = code.split("\n").length + 1;
-      if (crashRef.current) showCrash(crashRef.current);
+      if (crashRef.current) {
+        showCrash(crashRef.current);
+      } else if (tab === "exam" && examFault) {
+        setExamNote({
+          text: `Passed: mistake found on line ${examFault.changed_line}`,
+          ok: true,
+        });
+      }
     });
   };
 
@@ -299,6 +320,8 @@ export default function Home() {
 
   const handleSelectProgram = (name: string) => {
     resetState();
+    setTab("practice");
+    setExamFault(null);
     setProgramName(name);
     setCode(PROGRAMS[name]);
     setToolTip(0, 0, 200);
@@ -323,6 +346,7 @@ export default function Home() {
     setScanning(false);
     setUnclearLines(null);
     setVisionErrors(null);
+    setExamNote(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -368,6 +392,8 @@ export default function Home() {
         throw new Error(data.error ?? "Scan failed");
       }
       resetState();
+      setTab("practice");
+      setExamFault(null);
       setProgramName("CUSTOM");
       setCode(data.program);
       setUnclearLines(data.unclear_lines ?? []);
@@ -378,6 +404,40 @@ export default function Home() {
       ]);
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleNewQuestion = async () => {
+    if (loadingExam) return;
+    setLoadingExam(true);
+    try {
+      const res = await fetch("/api/exam");
+      const data = (await res.json()) as {
+        faulty_program?: string;
+        changed_line?: number;
+        hint?: string;
+        model?: string;
+        crash_type?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error || typeof data.faulty_program !== "string") {
+        throw new Error(data.error ?? "No exam questions");
+      }
+      resetState();
+      setTab("exam");
+      setProgramName("CUSTOM");
+      setCode(data.faulty_program);
+      setExamFault({
+        changed_line: data.changed_line ?? 0,
+        hint: data.hint ?? "",
+        model: data.model ?? "",
+        crash_type: data.crash_type ?? "",
+      });
+      setToolTip(0, 0, 200);
+    } catch {
+      setExamNote({ text: "No exam questions yet. Generate faults first.", ok: false });
+    } finally {
+      setLoadingExam(false);
     }
   };
 
@@ -448,6 +508,62 @@ export default function Home() {
             aria-label="Scan program sheet"
           />
         </div>
+
+        {/* Practice / Exam tabs */}
+        <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
+          {(["practice", "exam"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => {
+                setTab(t);
+                setExamNote(null);
+              }}
+              className={`rounded px-3 py-1 font-mono text-xs font-semibold ${
+                tab === t
+                  ? "bg-zinc-100 text-zinc-900"
+                  : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              {t === "practice" ? "Practice" : "Exam"}
+            </button>
+          ))}
+          {tab === "exam" && (
+            <button
+              type="button"
+              onClick={handleNewQuestion}
+              disabled={loadingExam}
+              className="flex shrink-0 items-center gap-2 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-100 hover:bg-zinc-800 disabled:opacity-60"
+            >
+              {loadingExam && (
+                <span
+                  aria-hidden
+                  className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-100 border-t-transparent"
+                />
+              )}
+              {loadingExam ? "Loading…" : "New question"}
+            </button>
+          )}
+        </div>
+        {tab === "exam" && (
+          <div className="border-b border-zinc-800 px-4 py-2">
+            {examFault ? (
+              <>
+                <p className="font-mono text-xs text-zinc-400">
+                  Hint: {examFault.hint}
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                  Model: {examFault.model} · Find the injected fault, fix it in
+                  the editor, then press Cycle Start.
+                </p>
+              </>
+            ) : (
+              <p className="font-mono text-xs text-zinc-500">
+                Press New question to load a faulty program.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* G-code editor with line numbers */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -569,6 +685,19 @@ export default function Home() {
             />
           </div>
         </div>
+
+        {/* Exam result */}
+        {examNote !== null && (
+          <div className="border-t border-zinc-800 px-4 py-2">
+            <p
+              className={`font-mono text-xs font-semibold ${
+                examNote.ok ? "text-green-400" : "text-red-400"
+              }`}
+            >
+              {examNote.text}
+            </p>
+          </div>
+        )}
 
         {/* Transcription parse errors */}
         {visionErrors !== null && visionErrors.length > 0 && (
