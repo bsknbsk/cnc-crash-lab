@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import Machine, { setToolTip, type FlashState } from "../components/Machine";
 import { GOOD, VARIANTS } from "../data/samples";
 import { runSteps, simulate, type SimStep } from "../lib/sim/index";
@@ -59,6 +59,12 @@ export default function Home() {
   const [trace, setTrace] = useState<TraceStep[] | null>(null);
   const [debrief, setDebrief] = useState<string | null>(null);
   const [causeLine, setCauseLine] = useState<number | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [unclearLines, setUnclearLines] = useState<number[] | null>(null);
+  const [visionErrors, setVisionErrors] = useState<
+    { line: number; message: string }[] | null
+  >(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -142,6 +148,9 @@ export default function Home() {
     setTrace(null);
     setDebrief(null);
     setCauseLine(null);
+    setScanning(false);
+    setUnclearLines(null);
+    setVisionErrors(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -156,6 +165,9 @@ export default function Home() {
     setTrace(null);
     setDebrief(null);
     setCauseLine(null);
+    setScanning(false);
+    setUnclearLines(null);
+    setVisionErrors(null);
   };
 
   const timerRef = useRef<number | null>(null);
@@ -308,10 +320,65 @@ export default function Home() {
     setTrace(null);
     setDebrief(null);
     setCauseLine(null);
+    setScanning(false);
+    setUnclearLines(null);
+    setVisionErrors(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
     nextLineRef.current = 1;
+  };
+
+  async function shrinkPhoto(file: File): Promise<Blob> {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("No 2D canvas context");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.85),
+    );
+    if (!blob) throw new Error("JPEG encoding failed");
+    return blob;
+  }
+
+  const handleScan = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || scanning) return;
+    setScanning(true);
+    try {
+      const photo = await shrinkPhoto(file);
+      const form = new FormData();
+      form.append("image", photo, "sheet.jpg");
+      const res = await fetch("/api/vision", { method: "POST", body: form });
+      const data = (await res.json()) as {
+        program?: string;
+        unclear_lines?: number[];
+        parseErrors?: { line: number; message: string }[];
+        error?: string;
+      };
+      if (!res.ok || data.error || typeof data.program !== "string") {
+        throw new Error(data.error ?? "Scan failed");
+      }
+      resetState();
+      setProgramName("CUSTOM");
+      setCode(data.program);
+      setUnclearLines(data.unclear_lines ?? []);
+      setVisionErrors(data.parseErrors ?? []);
+    } catch {
+      setVisionErrors([
+        { line: 0, message: "Scan failed. Try a clearer photo." },
+      ]);
+    } finally {
+      setScanning(false);
+    }
   };
 
   const syncScroll = () => {
@@ -357,6 +424,29 @@ export default function Home() {
               <option value="CUSTOM">Custom (edited)</option>
             )}
           </select>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={scanning}
+            className="flex shrink-0 items-center gap-2 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-100 hover:bg-zinc-800 disabled:opacity-60"
+          >
+            {scanning && (
+              <span
+                aria-hidden
+                className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-100 border-t-transparent"
+              />
+            )}
+            {scanning ? "Scanning…" : "Scan program sheet"}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleScan}
+            aria-label="Scan program sheet"
+          />
         </div>
 
         {/* G-code editor with line numbers */}
@@ -369,16 +459,19 @@ export default function Home() {
             {Array.from({ length: lineCount }, (_, i) => {
               const n = i + 1;
               const isCrash = crash !== null && crash.line === n;
-              const isCause =
-                debrief !== null && causeLine !== null && causeLine === n;
-              const isActive = activeLine === n && !isCrash && !isCause;
+              const isMarked =
+                (debrief !== null &&
+                  causeLine !== null &&
+                  causeLine === n) ||
+                (unclearLines?.includes(n) ?? false);
+              const isActive = activeLine === n && !isCrash && !isMarked;
               return (
                 <div
                   key={i}
                   className={`pr-3 ${
                     isCrash
                       ? "bg-red-500/30 font-bold text-red-300"
-                      : isCause
+                      : isMarked
                         ? "bg-amber-500/25 font-bold text-amber-300"
                         : isActive
                           ? "bg-emerald-500/20 text-emerald-300"
@@ -426,6 +519,22 @@ export default function Home() {
                         }}
                       />
                     )}
+                  {(unclearLines ?? []).map(
+                    (l) =>
+                      l >= 1 &&
+                      l <= lineCount &&
+                      l !== crash?.line &&
+                      l !== causeLine && (
+                        <div
+                          key={`unclear-${l}`}
+                          className="absolute inset-x-0 bg-amber-500/25"
+                          style={{
+                            top: PAD_TOP + (l - 1) * LINE_H,
+                            height: LINE_H,
+                          }}
+                        />
+                      ),
+                  )}
                   {activeLine !== null &&
                     activeLine >= 1 &&
                     activeLine <= lineCount && (
@@ -433,7 +542,9 @@ export default function Home() {
                         className={`absolute inset-x-0 ${
                           crash !== null && crash.line === activeLine
                             ? "bg-red-500/30"
-                            : causeLine !== null && causeLine === activeLine
+                            : (causeLine !== null &&
+                                  causeLine === activeLine) ||
+                                (unclearLines?.includes(activeLine) ?? false)
                               ? "bg-amber-500/25"
                               : "bg-emerald-500/20"
                         }`}
@@ -458,6 +569,23 @@ export default function Home() {
             />
           </div>
         </div>
+
+        {/* Transcription parse errors */}
+        {visionErrors !== null && visionErrors.length > 0 && (
+          <div className="border-t border-zinc-800 px-4 py-2">
+            <p className="font-mono text-xs font-semibold text-red-400">
+              Transcription needs attention
+            </p>
+            <ul className="mt-1 max-h-24 overflow-y-auto font-mono text-xs text-zinc-300">
+              {visionErrors.map((e, i) => (
+                <li key={i}>
+                  {e.line > 0 ? `Line ${e.line}: ` : ""}
+                  {e.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Control panel */}
         <div className="flex gap-2 border-t border-zinc-800 p-3">

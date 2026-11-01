@@ -73,6 +73,29 @@ check(
   `got ${mg43.crash?.zErrorMm}`,
 );
 
+// Rapid sideways at cutting depth: G00 X25 while the tip is still at Z-1.
+const SIDEWAYS = `G21 G17 G40 G49 G90
+G54
+T1 M06
+S3000 M03
+G00 X5 Y5
+G43 Z25 H01
+G00 Z5
+G01 Z-1 F300
+G00 X25
+M30`;
+const side = simulate(SIDEWAYS);
+check(
+  "sideways: RAPID_INTO_STOCK",
+  side.crash?.type === "RAPID_INTO_STOCK",
+  `got ${side.crash?.type}`,
+);
+check(
+  "sideways: zErrorMm 0",
+  side.crash?.zErrorMm === 0,
+  `got ${side.crash?.zErrorMm}`,
+);
+
 if (failures > 0) {
   console.log(`${failures} check(s) failed`);
   process.exit(1);

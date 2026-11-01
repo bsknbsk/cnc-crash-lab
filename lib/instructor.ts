@@ -172,10 +172,14 @@ In the FIRST turn, call lookup_gcode ONLY for the listed "Codes to explain" (at 
 Then write a corrected program and call run_sim on it. If it is not ok, fix it and rerun until run_sim returns ok. In the fixed program, write tool length blocks in shop convention order: motion, G43, Z, H, then M codes, e.g. "G00 G43 Z25. H01 M08".
 Then answer.
 Answer under 180 words outside the program, with exactly these sections. Put each section header on its own line, followed by the content on the following lines. Never repeat a header inside its content.
-WHAT HAPPENED (exactly these three lines, using only crash-event facts, computing nothing yourself:
+WHAT HAPPENED (exactly three lines, using only crash-event facts, computing nothing yourself. If zErrorMm is not 0 (the tool was lower than intended):
 "Commanded <block> = target Z<commandedTarget.z> in <offset>."
 "Actual tip target Z<actualTarget.z>, <abs(zErrorMm)> mm low."
-"First contact with <collidedWith> at Z<position.z> on the way down.")
+"First contact with <collidedWith> at Z<position.z> on the way down."
+If zErrorMm is 0 and the move has X or Y travel (a sideways move at the wrong height):
+"Commanded <block>: <motion> move in X/Y at Z<position.z>."
+"The tool was still at Z<position.z>, below the top of the <collidedWith>, with no retract before the move."
+"First contact with <collidedWith> at X<position.x> Y<position.y>.")
 CRASH LINE (content format "line <n>: <block>" using the line number and block from the crash event, where the impact happened)
 ROOT CAUSE (content format "line <n>: <block> - <one sentence linking this mistake to the crash>". The mistake can be on a different line from the crash line; explain the link in one sentence)
 REPAIR COST (INR range, downtime hours, damaged parts, from quote_cost only)
