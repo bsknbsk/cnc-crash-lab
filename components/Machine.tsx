@@ -21,6 +21,11 @@ export interface ToolTip {
 
 export const TOOL_TIP_START: ToolTip = { x: 0, y: 0, z: 200 };
 
+export interface FlashState {
+  solid: "STOCK" | "VISE" | "TABLE" | null;
+  key: number;
+}
+
 // Mutable tool-tip driven by the simulator (see lib/sim). Subscribers are
 // notified on every update so the 3D tool follows G-code motion.
 const toolTip: ToolTip = { ...TOOL_TIP_START };
@@ -85,8 +90,35 @@ function Tool({ tip }: { tip: ToolTip }) {
   );
 }
 
-export default function Machine() {
+export default function Machine({ flash }: { flash?: FlashState }) {
   const tip = useToolTip();
+  const [flashOn, setFlashOn] = useState(false);
+
+  // Flash the collided solid red three times when a crash arrives.
+  // All state updates happen in timer callbacks so the effect body itself
+  // only subscribes. Ticks 1, 3, 5 are red; tick 7 ends on dark.
+  useEffect(() => {
+    if (!flash || flash.solid === null || flash.key === 0) return;
+    let n = 0;
+    const id = setInterval(() => {
+      n += 1;
+      if (n >= 7) {
+        clearInterval(id);
+        setFlashOn(false);
+      } else {
+        setFlashOn(n % 2 === 1);
+      }
+    }, 220);
+    return () => {
+      clearInterval(id);
+      setFlashOn(false);
+    };
+  }, [flash]);
+
+  const stockFlash = flashOn && flash?.solid === "STOCK";
+  const viseFlash = flashOn && flash?.solid === "VISE";
+  const tableFlash = flashOn && flash?.solid === "TABLE";
+
   return (
     <Canvas
       shadows
@@ -103,25 +135,45 @@ export default function Machine() {
       {/* Stock: X 0..100, Y 0..80, Z -30..0, blue */}
       <mesh position={toScene(50, 40, -15)} castShadow receiveShadow>
         <boxGeometry args={boxSize(100, 80, 30)} />
-        <meshStandardMaterial color="#2563eb" roughness={0.5} metalness={0.1} />
+        <meshStandardMaterial
+          color={stockFlash ? "#ef4444" : "#2563eb"}
+          emissive={stockFlash ? "#7f1d1d" : "#000000"}
+          roughness={0.5}
+          metalness={0.1}
+        />
       </mesh>
 
       {/* Vise jaws: X -10..110, Z -40..-10, grey */}
       {/* Front jaw: Y -15..0 */}
       <mesh position={toScene(50, -7.5, -25)} castShadow receiveShadow>
         <boxGeometry args={boxSize(120, 15, 30)} />
-        <meshStandardMaterial color="#9ca3af" roughness={0.6} metalness={0.4} />
+        <meshStandardMaterial
+          color={viseFlash ? "#ef4444" : "#9ca3af"}
+          emissive={viseFlash ? "#7f1d1d" : "#000000"}
+          roughness={0.6}
+          metalness={0.4}
+        />
       </mesh>
       {/* Back jaw: Y 80..95 */}
       <mesh position={toScene(50, 87.5, -25)} castShadow receiveShadow>
         <boxGeometry args={boxSize(120, 15, 30)} />
-        <meshStandardMaterial color="#9ca3af" roughness={0.6} metalness={0.4} />
+        <meshStandardMaterial
+          color={viseFlash ? "#ef4444" : "#9ca3af"}
+          emissive={viseFlash ? "#7f1d1d" : "#000000"}
+          roughness={0.6}
+          metalness={0.4}
+        />
       </mesh>
 
       {/* Table: X -200..300, Y -100..180, Z -60..-40, dark grey */}
       <mesh position={toScene(50, 40, -50)} receiveShadow>
         <boxGeometry args={boxSize(500, 280, 20)} />
-        <meshStandardMaterial color="#374151" roughness={0.8} metalness={0.2} />
+        <meshStandardMaterial
+          color={tableFlash ? "#ef4444" : "#374151"}
+          emissive={tableFlash ? "#7f1d1d" : "#000000"}
+          roughness={0.8}
+          metalness={0.2}
+        />
       </mesh>
 
       {/* Reference grid just above the table top (Z = -40) */}
