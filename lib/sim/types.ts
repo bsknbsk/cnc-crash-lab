@@ -13,6 +13,14 @@ export interface CrashEvent {
   motion: "RAPID" | "FEED";
   spindleRpm: number;
   collidedWith: "STOCK" | "VISE" | "TABLE";
+  /** Block target in the active work coordinates, as programmed. */
+  commandedTarget: { x: number; y: number; z: number };
+  /** Where the tool tip was actually heading, in G54 (machine) terms. */
+  actualTarget: { x: number; y: number; z: number };
+  /** actualTarget.z minus the intended G54 Z (commanded z, G54 + G43 active). */
+  zErrorMm: number;
+  /** Active work offset of the crashing block (G54, G55, ...). */
+  offset: string;
 }
 
 export interface SimResult {

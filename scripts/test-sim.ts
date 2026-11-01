@@ -1,7 +1,12 @@
 // Test script: npx tsx scripts/test-sim.ts
 // Asserts GOOD returns ok and each variant returns its crash type.
 import { simulate, runSteps } from "../lib/sim/index";
-import { GOOD, VARIANTS } from "../data/samples";
+import {
+  GOOD,
+  VARIANTS,
+  MISSING_G43,
+  WRONG_WORK_OFFSET,
+} from "../data/samples";
 import type { CrashType } from "../lib/sim/types";
 
 let failures = 0;
@@ -48,6 +53,25 @@ for (const [type, prog] of Object.entries(VARIANTS) as [CrashType, string][]) {
   const vsteps = runSteps(prog);
   check(`${type}: steps stop at crash line`, vsteps.every((s) => s.line <= (r.crash?.line ?? 1e9)), "");
 }
+
+const wwo = simulate(WRONG_WORK_OFFSET);
+check(
+  "WRONG_WORK_OFFSET actualTarget.z = -20",
+  wwo.crash?.actualTarget.z === -20,
+  `got ${JSON.stringify(wwo.crash?.actualTarget)}`,
+);
+check(
+  "WRONG_WORK_OFFSET zErrorMm = -25",
+  wwo.crash?.zErrorMm === -25,
+  `got ${wwo.crash?.zErrorMm}`,
+);
+
+const mg43 = simulate(MISSING_G43);
+check(
+  "MISSING_G43 zErrorMm = -120",
+  mg43.crash?.zErrorMm === -120,
+  `got ${mg43.crash?.zErrorMm}`,
+);
 
 if (failures > 0) {
   console.log(`${failures} check(s) failed`);

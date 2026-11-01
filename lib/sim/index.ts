@@ -373,6 +373,14 @@ function execute(blocks: Block[], collectSteps: boolean): EngineResult {
         spindleOn;
       if (hit !== null && !cutting) {
         cycleTimeSec += fullTime * (i / n);
+        // Programmed work target of this block (G28 homing has none, so
+        // fall back to the block-start work position). The move target is
+        // already in machine (= G54) coordinates.
+        const commandedTarget = {
+          ...(b as { __w?: { x: number; y: number; z: number } }).__w ?? {
+            ...work,
+          },
+        };
         const crash: CrashEvent = {
           type: classify({
             g43SinceToolChange,
@@ -387,6 +395,10 @@ function execute(blocks: Block[], collectSteps: boolean): EngineResult {
           motion: moveMotion,
           spindleRpm,
           collidedWith: hit.solid,
+          commandedTarget,
+          actualTarget: { ...target },
+          zErrorMm: target.z - commandedTarget.z,
+          offset: offsetName,
         };
         return { crash, crashLine: b.line, cycleTimeSec, steps, finishedAtLine: null };
       }

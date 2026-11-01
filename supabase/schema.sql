@@ -24,3 +24,13 @@ insert into repair_costs (crash_type, damaged_parts, min_inr, max_inr, downtime_
 ('FEED_SPINDLE_OFF',
  'End mill broken or chipped, stock rework',
  2000, 25000, 2);
+
+alter table repair_costs add column habit text;
+
+update repair_costs set habit = 'After every M06, check that the G43 H number matches the T number. Run the first Z approach in single block at 25% rapid override and watch distance-to-go.' where crash_type = 'MISSING_G43';
+update repair_costs set habit = 'Before cycle start, confirm the active work offset matches the setup sheet and compare the offset page values. Run the first Z approach in single block at 25% rapid and watch distance-to-go.' where crash_type = 'WRONG_WORK_OFFSET';
+update repair_costs set habit = 'Read the sign of every Z value at dry run. Never rapid below the clearance plane above the stock; feed the last 5 mm.' where crash_type = 'RAPID_INTO_STOCK';
+update repair_costs set habit = 'Retract Z to clearance before any XY rapid, and check XY paths against the vise jaw positions on the setup sheet.' where crash_type = 'RAPID_INTO_VISE';
+update repair_costs set habit = 'Confirm the spindle is running at the programmed S before the first feed move, and watch the spindle load meter at the first plunge.' where crash_type = 'FEED_SPINDLE_OFF';
+
+select crash_type, habit from repair_costs;

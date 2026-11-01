@@ -9,6 +9,7 @@ export interface CostQuote {
   min_inr: number | null;
   max_inr: number | null;
   downtime_hours: number | null;
+  habit: string | null;
 }
 
 export async function quoteCost(
@@ -16,7 +17,7 @@ export async function quoteCost(
 ): Promise<CostQuote | { error: string }> {
   const { data, error } = await supabase
     .from("repair_costs")
-    .select("crash_type, damaged_parts, min_inr, max_inr, downtime_hours")
+    .select("crash_type, damaged_parts, min_inr, max_inr, downtime_hours, habit")
     .eq("crash_type", crashType)
     .single();
 

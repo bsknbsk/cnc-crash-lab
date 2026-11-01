@@ -5,7 +5,7 @@
   "G21": "Metric programming: all coordinates and feedrates in millimetres.",
   "G28": "Return to machine home via an intermediate point (here used with G91 Z0 to send the tool straight up).",
   "G40": "Cancel cutter radius compensation.",
-  "G43": "Tool length compensation on: shifts Z by the H-register value so the programmed point is the tool tip.",
+  "G43": "Tool length compensation positive. Applies the H offset; call it on the first Z move after every tool change, with H matching the T number.",
   "G49": "Cancel tool length compensation.",
   "G54": "Work coordinate system 1: the part zero used by this program.",
   "G55": "Work coordinate system 2: a second part zero (on this machine a stale offset 25 mm low).",
@@ -13,7 +13,7 @@
   "G91": "Incremental programming: coordinates are distances from the current point.",
   "M03": "Spindle on clockwise at the programmed S speed.",
   "M05": "Spindle stop.",
-  "M06": "Tool change (also cancels tool length compensation until G43 is commanded again).",
+  "M06": "Tool change to the tool called by T. Command G43 with the H number matching the new tool on the first Z move after every tool change.",
   "M08": "Coolant on.",
   "M09": "Coolant off.",
   "M30": "End of program: stops spindle, coolant and rewinds."

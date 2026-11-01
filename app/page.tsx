@@ -35,6 +35,18 @@ function extractFixedProgram(debrief: string): string | null {
   return program ? program : null;
 }
 
+function parseDebriefLines(debrief: string): {
+  crashLine: number | null;
+  causeLine: number | null;
+} {
+  const crash = debrief.match(/CRASH LINE:?\s*\n?\s*line\s*(\d+)/i);
+  const cause = debrief.match(/ROOT CAUSE:?\s*\n?\s*line\s*(\d+)/i);
+  return {
+    crashLine: crash ? Number(crash[1]) : null,
+    causeLine: cause ? Number(cause[1]) : null,
+  };
+}
+
 export default function Home() {
   const [code, setCode] = useState(GOOD);
   const [programName, setProgramName] = useState("GOOD");
@@ -46,6 +58,7 @@ export default function Home() {
   const [asking, setAsking] = useState(false);
   const [trace, setTrace] = useState<TraceStep[] | null>(null);
   const [debrief, setDebrief] = useState<string | null>(null);
+  const [causeLine, setCauseLine] = useState<number | null>(null);
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -117,12 +130,18 @@ export default function Home() {
 
   const resetState = () => {
     cancelAnimation();
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setElapsedMs(0);
     setActiveLine(null);
     setCrash(null);
     setFlash({ solid: null, key: 0 });
     setAsking(false);
     setTrace(null);
     setDebrief(null);
+    setCauseLine(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -136,28 +155,74 @@ export default function Home() {
     setAsking(false);
     setTrace(null);
     setDebrief(null);
+    setCauseLine(null);
   };
+
+  const timerRef = useRef<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+      }
+    };
+  }, []);
 
   const handleAsk = async () => {
     if (!crash || asking) return;
     setAsking(true);
-    setTrace(null);
+    setTrace([]);
     setDebrief(null);
+    setElapsedMs(0);
+    const started = Date.now();
+    timerRef.current = window.setInterval(() => {
+      setElapsedMs(Date.now() - started);
+    }, 200);
     try {
       const res = await fetch("/api/instructor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ program: code, crash }),
       });
-      const data = (await res.json()) as {
-        trace?: TraceStep[];
-        debrief?: string;
-      };
-      setTrace(data.trace ?? []);
-      setDebrief(data.debrief ?? "");
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const ev = JSON.parse(line) as
+            | { type: "step"; tool: string; args: unknown; summary: string }
+            | { type: "done"; debrief: string }
+            | { type: "error"; message: string }
+            | { type: "thinking"; turn: number };
+          if (ev.type === "step") {
+            setTrace((prev) => [
+              ...(prev ?? []),
+              { name: ev.tool, arguments: ev.args, summary: ev.summary },
+            ]);
+          } else if (ev.type === "done") {
+            setDebrief(ev.debrief);
+            setCauseLine(parseDebriefLines(ev.debrief).causeLine);
+          } else if (ev.type === "error") {
+            setDebrief(`Instructor error: ${ev.message}`);
+          }
+        }
+      }
     } catch {
       setDebrief("Instructor request failed. Check the server and try again.");
     } finally {
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setElapsedMs(Date.now() - started);
       setAsking(false);
     }
   };
@@ -229,6 +294,11 @@ export default function Home() {
 
   const handleCodeChange = (value: string) => {
     cancelAnimation();
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setElapsedMs(0);
     setCode(value);
     setProgramName("CUSTOM");
     setActiveLine(null);
@@ -237,6 +307,7 @@ export default function Home() {
     setAsking(false);
     setTrace(null);
     setDebrief(null);
+    setCauseLine(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -298,16 +369,20 @@ export default function Home() {
             {Array.from({ length: lineCount }, (_, i) => {
               const n = i + 1;
               const isCrash = crash !== null && crash.line === n;
-              const isActive = activeLine === n && !isCrash;
+              const isCause =
+                debrief !== null && causeLine !== null && causeLine === n;
+              const isActive = activeLine === n && !isCrash && !isCause;
               return (
                 <div
                   key={i}
                   className={`pr-3 ${
                     isCrash
                       ? "bg-red-500/30 font-bold text-red-300"
-                      : isActive
-                        ? "bg-emerald-500/20 text-emerald-300"
-                        : ""
+                      : isCause
+                        ? "bg-amber-500/25 font-bold text-amber-300"
+                        : isActive
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : ""
                   }`}
                 >
                   {n}
@@ -322,21 +397,53 @@ export default function Home() {
               aria-hidden
             >
               <div style={{ transform: `translateY(${-scrollTop}px)` }}>
-                {activeLine !== null &&
-                  activeLine >= 1 &&
-                  activeLine <= lineCount && (
-                    <div
-                      className={
-                        crash !== null && crash.line === activeLine
-                          ? "bg-red-500/30"
-                          : "bg-emerald-500/20"
-                      }
-                      style={{
-                        marginTop: PAD_TOP + (activeLine - 1) * LINE_H,
-                        height: LINE_H,
-                      }}
-                    />
-                  )}
+                <div
+                  className="relative w-full"
+                  style={{ height: PAD_TOP * 2 + lineCount * LINE_H }}
+                >
+                  {debrief !== null &&
+                    crash !== null &&
+                    crash.line >= 1 &&
+                    crash.line <= lineCount && (
+                      <div
+                        className="absolute inset-x-0 bg-red-500/30"
+                        style={{
+                          top: PAD_TOP + (crash.line - 1) * LINE_H,
+                          height: LINE_H,
+                        }}
+                      />
+                    )}
+                  {debrief !== null &&
+                    causeLine !== null &&
+                    causeLine >= 1 &&
+                    causeLine <= lineCount &&
+                    causeLine !== crash?.line && (
+                      <div
+                        className="absolute inset-x-0 bg-amber-500/25"
+                        style={{
+                          top: PAD_TOP + (causeLine - 1) * LINE_H,
+                          height: LINE_H,
+                        }}
+                      />
+                    )}
+                  {activeLine !== null &&
+                    activeLine >= 1 &&
+                    activeLine <= lineCount && (
+                      <div
+                        className={`absolute inset-x-0 ${
+                          crash !== null && crash.line === activeLine
+                            ? "bg-red-500/30"
+                            : causeLine !== null && causeLine === activeLine
+                              ? "bg-amber-500/25"
+                              : "bg-emerald-500/20"
+                        }`}
+                        style={{
+                          top: PAD_TOP + (activeLine - 1) * LINE_H,
+                          height: LINE_H,
+                        }}
+                      />
+                    )}
+                </div>
               </div>
             </div>
             <textarea
@@ -407,7 +514,9 @@ export default function Home() {
                     className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
                   />
                 )}
-                {asking ? "Asking…" : "Ask the Instructor"}
+                {asking
+                  ? `Asking… ${(elapsedMs / 1000).toFixed(1)}s`
+                  : "Ask the Instructor"}
               </button>
               {trace && trace.length > 0 && (
                 <ol className="mt-3 list-decimal space-y-1 pl-5 font-mono text-base text-zinc-200">
