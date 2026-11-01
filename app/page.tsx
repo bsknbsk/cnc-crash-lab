@@ -18,6 +18,23 @@ const PAD_TOP = 12;
 const FEED_STRIDE = 2;
 const RAPID_STRIDE = 8;
 
+interface TraceStep {
+  name: string;
+  arguments: unknown;
+  summary: string;
+}
+
+function shortArgs(value: unknown): string {
+  const flat = (JSON.stringify(value) ?? "").replace(/\s+/g, " ");
+  return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
+}
+
+function extractFixedProgram(debrief: string): string | null {
+  const m = debrief.match(/```(?:gcode)?\s*\n?([\s\S]*?)```/);
+  const program = m?.[1].trim();
+  return program ? program : null;
+}
+
 export default function Home() {
   const [code, setCode] = useState(GOOD);
   const [programName, setProgramName] = useState("GOOD");
@@ -26,6 +43,9 @@ export default function Home() {
   const [flash, setFlash] = useState<FlashState>({ solid: null, key: 0 });
   const [running, setRunning] = useState(false);
   const [scrollTop, setScrollTop] = useState(0);
+  const [asking, setAsking] = useState(false);
+  const [trace, setTrace] = useState<TraceStep[] | null>(null);
+  const [debrief, setDebrief] = useState<string | null>(null);
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -56,12 +76,6 @@ export default function Home() {
     }
     runningRef.current = false;
     setRunning(false);
-  };
-
-  const showCrash = (c: CrashEvent) => {
-    setCrash(c);
-    setActiveLine(c.line);
-    setFlash({ solid: c.collidedWith, key: Date.now() });
   };
 
   // Play a list of 0.5 mm steps, advancing 1 mm/frame on feed moves and
@@ -106,10 +120,56 @@ export default function Home() {
     setActiveLine(null);
     setCrash(null);
     setFlash({ solid: null, key: 0 });
+    setAsking(false);
+    setTrace(null);
+    setDebrief(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
     nextLineRef.current = 1;
+  };
+
+  const showCrash = (c: CrashEvent) => {
+    setCrash(c);
+    setActiveLine(c.line);
+    setFlash({ solid: c.collidedWith, key: Date.now() });
+    setAsking(false);
+    setTrace(null);
+    setDebrief(null);
+  };
+
+  const handleAsk = async () => {
+    if (!crash || asking) return;
+    setAsking(true);
+    setTrace(null);
+    setDebrief(null);
+    try {
+      const res = await fetch("/api/instructor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ program: code, crash }),
+      });
+      const data = (await res.json()) as {
+        trace?: TraceStep[];
+        debrief?: string;
+      };
+      setTrace(data.trace ?? []);
+      setDebrief(data.debrief ?? "");
+    } catch {
+      setDebrief("Instructor request failed. Check the server and try again.");
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const handleLoadFixed = () => {
+    if (!debrief) return;
+    const fixed = extractFixedProgram(debrief);
+    if (!fixed) return;
+    resetState();
+    setProgramName("CUSTOM");
+    setCode(fixed);
+    setToolTip(0, 0, 200);
   };
 
   const handleCycleStart = () => {
@@ -174,6 +234,9 @@ export default function Home() {
     setActiveLine(null);
     setCrash(null);
     setFlash({ solid: null, key: 0 });
+    setAsking(false);
+    setTrace(null);
+    setDebrief(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -321,8 +384,8 @@ export default function Home() {
       <section className="relative w-[60%] bg-black">
         <Machine flash={flash} />
         {crash && (
-          <div className="absolute inset-x-0 top-0 flex justify-center pt-6">
-            <div className="w-96 rounded-lg border border-red-600 bg-zinc-950/95 p-4 shadow-2xl">
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-6">
+            <div className="pointer-events-auto max-h-[85vh] w-[28rem] overflow-y-auto rounded-lg border border-red-600 bg-zinc-950/95 p-4 shadow-2xl">
               <h2 className="font-mono text-sm font-bold text-red-400">
                 CRASH · {crash.type}
               </h2>
@@ -334,12 +397,46 @@ export default function Home() {
               </pre>
               <button
                 type="button"
-                disabled
-                title="Coming soon"
-                className="mt-3 w-full cursor-not-allowed rounded bg-zinc-700 px-3 py-2 font-mono text-sm font-semibold text-zinc-400 opacity-60"
+                onClick={handleAsk}
+                disabled={asking}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-sky-600 px-3 py-2 font-mono text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
               >
-                Ask the Instructor
+                {asking && (
+                  <span
+                    aria-hidden
+                    className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                  />
+                )}
+                {asking ? "Asking…" : "Ask the Instructor"}
               </button>
+              {trace && trace.length > 0 && (
+                <ol className="mt-3 list-decimal space-y-1 pl-5 font-mono text-base text-zinc-200">
+                  {trace.map((t, i) => (
+                    <li key={i} className="break-words">
+                      <span className="text-sky-300">{t.name}</span>
+                      <span className="text-zinc-500">
+                        {" "}
+                        {shortArgs(t.arguments)}
+                      </span>
+                      <span> → {t.summary}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {debrief !== null && (
+                <pre className="mt-3 rounded bg-zinc-900 p-2 font-mono text-xs whitespace-pre-wrap text-zinc-100">
+                  {debrief}
+                </pre>
+              )}
+              {debrief && extractFixedProgram(debrief) && (
+                <button
+                  type="button"
+                  onClick={handleLoadFixed}
+                  className="mt-3 w-full rounded bg-green-600 px-3 py-2 font-mono text-sm font-semibold text-white hover:bg-green-500"
+                >
+                  Load fixed program
+                </button>
+              )}
             </div>
           </div>
         )}
