@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import * as THREE from "three";
 import { Html, Line, OrbitControls } from "@react-three/drei";
+import { createSparks, SPARK_COUNT, SPARK_GRAVITY } from "../lib/sparks";
 
 // ---------------------------------------------------------------------------
 // Machine coordinate system (mm, 1 unit = 1 mm):
@@ -74,17 +76,17 @@ function Tool({ tip }: { tip: ToolTip }) {
   );
   return (
     <group>
-      {/* T1 flat end mill, bright brown cylinder from tip up 50 mm */}
+      {/* T1 flat end mill, light brown cylinder from tip up 50 mm */}
       <mesh position={toolCenter} castShadow>
         <cylinderGeometry args={[TOOL_RADIUS, TOOL_RADIUS, TOOL_STICKOUT, 32]} />
-        <meshStandardMaterial color="#C8792E" metalness={0.9} roughness={0.3} />
+        <meshStandardMaterial color="#D9A066" metalness={0.9} roughness={0.3} />
       </mesh>
       {/* Holder, diameter 40 x height 40, sitting on top of the tool */}
       <mesh position={holderCenter} castShadow>
         <cylinderGeometry
           args={[HOLDER_RADIUS, HOLDER_RADIUS, HOLDER_HEIGHT, 32]}
         />
-        <meshStandardMaterial color="#6b7280" metalness={0.7} roughness={0.45} />
+        <meshStandardMaterial color="#C49060" metalness={0.7} roughness={0.45} />
       </mesh>
     </group>
   );
@@ -134,12 +136,161 @@ function Datum({
   );
 }
 
+export interface ImpactBurst {
+  x: number;
+  y: number;
+  z: number;
+  solid: "STOCK" | "VISE" | "TABLE";
+  key: number;
+}
+
+const SPARK_MAX_LIFE = 0.9;
+const SHAKE_MM = 3;
+const SHAKE_S = 0.4;
+const FLASH_S = 0.25;
+
+// Spark burst + point-light flash + shake. Everything advances in useFrame
+// with refs only, so the animation never re-renders React.
+function ImpactFX({
+  burst,
+  children,
+}: {
+  burst: ImpactBurst | null;
+  children: ReactNode;
+}) {
+  const shakeRef = useRef<THREE.Group>(null);
+  const pointsRef = useRef<THREE.Points>(null);
+  const matRef = useRef<THREE.PointsMaterial>(null);
+  const lightRef = useRef<THREE.PointLight>(null);
+  const sim = useRef<{ vel: Float32Array; life: Float32Array; t: number } | null>(
+    null,
+  );
+  const geom = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(SPARK_COUNT * 3), 3).setUsage(
+        THREE.DynamicDrawUsage,
+      ),
+    );
+    g.setAttribute(
+      "color",
+      new THREE.BufferAttribute(new Float32Array(SPARK_COUNT * 3), 3),
+    );
+    return g;
+  }, []);
+  useEffect(() => () => geom.dispose(), [geom]);
+
+  useEffect(() => {
+    if (!burst) {
+      sim.current = null;
+      return;
+    }
+    const s = createSparks(burst.x, burst.y, burst.z, burst.solid);
+    // Machine space (x right, y back, z up) renders as scene [x, z, -y].
+    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
+    const parr = posAttr.array as Float32Array;
+    const vel = new Float32Array(SPARK_COUNT * 3);
+    for (let i = 0; i < SPARK_COUNT; i++) {
+      parr[i * 3] = s.positions[i * 3];
+      parr[i * 3 + 1] = s.positions[i * 3 + 2];
+      parr[i * 3 + 2] = -s.positions[i * 3 + 1];
+      vel[i * 3] = s.velocities[i * 3];
+      vel[i * 3 + 1] = s.velocities[i * 3 + 2];
+      vel[i * 3 + 2] = -s.velocities[i * 3 + 1];
+    }
+    (geom.getAttribute("color") as THREE.BufferAttribute).array.set(s.colors);
+    posAttr.needsUpdate = true;
+    geom.getAttribute("color").needsUpdate = true;
+    sim.current = { vel, life: s.lifetimes, t: 0 };
+    if (pointsRef.current) pointsRef.current.visible = true;
+  }, [burst, geom]);
+
+  useFrame((_, rawDt) => {
+    const st = sim.current;
+    if (!st) return;
+    const dt = Math.min(rawDt, 0.05);
+    st.t += dt;
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    for (let i = 0; i < SPARK_COUNT; i++) {
+      if (st.t >= st.life[i]) {
+        arr[i * 3 + 1] = -9999;
+        continue;
+      }
+      st.vel[i * 3 + 1] -= SPARK_GRAVITY * dt;
+      arr[i * 3] += st.vel[i * 3] * dt;
+      arr[i * 3 + 1] += st.vel[i * 3 + 1] * dt;
+      arr[i * 3 + 2] += st.vel[i * 3 + 2] * dt;
+    }
+    pos.needsUpdate = true;
+    if (matRef.current) {
+      matRef.current.opacity = Math.max(0, 1 - st.t / SPARK_MAX_LIFE);
+    }
+    if (lightRef.current) {
+      lightRef.current.intensity =
+        st.t < FLASH_S ? 50 * (1 - st.t / FLASH_S) : 0;
+    }
+    if (shakeRef.current) {
+      if (st.t < SHAKE_S) {
+        const a = SHAKE_MM * (1 - st.t / SHAKE_S);
+        shakeRef.current.position.set(
+          (Math.random() - 0.5) * 2 * a,
+          (Math.random() - 0.5) * 2 * a,
+          (Math.random() - 0.5) * 2 * a,
+        );
+      } else {
+        shakeRef.current.position.set(0, 0, 0);
+      }
+    }
+    if (st.t >= SPARK_MAX_LIFE) {
+      sim.current = null;
+      if (pointsRef.current) pointsRef.current.visible = false;
+      if (lightRef.current) lightRef.current.intensity = 0;
+      if (shakeRef.current) shakeRef.current.position.set(0, 0, 0);
+    }
+  });
+
+  const at: V3 = burst ? toScene(burst.x, burst.y, burst.z) : [0, 0, 0];
+  return (
+    <group ref={shakeRef}>
+      {children}
+      <points
+        ref={pointsRef}
+        geometry={geom}
+        visible={false}
+        frustumCulled={false}
+      >
+        <pointsMaterial
+          ref={matRef}
+          size={2.5}
+          vertexColors
+          transparent
+          opacity={0}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          sizeAttenuation
+        />
+      </points>
+      <pointLight
+        ref={lightRef}
+        position={at}
+        color="#ff9a3c"
+        intensity={0}
+        distance={500}
+      />
+    </group>
+  );
+}
+
 export default function Machine({
   flash,
   activeOffset = "G54",
+  burst = null,
 }: {
   flash?: FlashState;
   activeOffset?: string;
+  burst?: ImpactBurst | null;
 }) {
   const tip = useToolTip();
   const [flashOn, setFlashOn] = useState(false);
@@ -177,6 +328,7 @@ export default function Machine({
       shadows
       camera={{ position: [-120, 180, 200], fov: 45, near: 1, far: 5000 }}
     >
+      <ImpactFX burst={burst}>
       <ambientLight intensity={0.5} />
       <directionalLight
         position={[150, 250, 180]}
@@ -270,6 +422,7 @@ export default function Machine({
       />
 
       <Tool tip={tip} />
+      </ImpactFX>
 
       <OrbitControls target={toScene(50, 40, -15)} makeDefault />
     </Canvas>

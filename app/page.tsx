@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import Machine, { setToolTip, type FlashState } from "../components/Machine";
+import Machine, {
+  setToolTip,
+  type FlashState,
+  type ImpactBurst,
+} from "../components/Machine";
+import { ensureAudio, playCrash } from "../lib/crash-sound";
 import { GOOD, VARIANTS } from "../data/samples";
 import { runSteps, simulate, type SimStep } from "../lib/sim/index";
 import type { CrashEvent } from "../lib/sim/types";
@@ -37,6 +42,25 @@ function extractFixedProgram(debrief: string): string | null {
 
 function findActiveOffset(code: string): string {
   return code.match(/G5[4-9]/)?.[0] ?? "G54";
+}
+
+const SOUND_STORAGE_KEY = "cnc-crash-lab-sound";
+
+function loadSoundOn(): boolean {
+  try {
+    const raw = localStorage.getItem(SOUND_STORAGE_KEY);
+    return raw === null ? true : raw === "1";
+  } catch {
+    return true;
+  }
+}
+
+function saveSoundOn(on: boolean): void {
+  try {
+    localStorage.setItem(SOUND_STORAGE_KEY, on ? "1" : "0");
+  } catch {
+    // Private mode etc: preference just won't persist.
+  }
 }
 
 const EXAM_STORAGE_KEY = "cnc-crash-lab-exam-completed";
@@ -117,6 +141,8 @@ export default function Home() {
   const [endNote, setEndNote] = useState<string | null>(null);
   const cycleTimeRef = useRef(0);
   const parseErrorRef = useRef(false);
+  const [burst, setBurst] = useState<ImpactBurst | null>(null);
+  const [soundOn, setSoundOn] = useState<boolean>(loadSoundOn);
   const [costMap, setCostMap] = useState<Record<
     string,
     {
@@ -246,6 +272,14 @@ export default function Home() {
     setCrash(c);
     setActiveLine(c.line);
     setFlash({ solid: c.collidedWith, key: Date.now() });
+    setBurst({
+      x: c.position.x,
+      y: c.position.y,
+      z: c.position.z,
+      solid: c.collidedWith,
+      key: Date.now(),
+    });
+    if (soundOn) playCrash();
     setAsking(false);
     setTrace(null);
     setDebrief(null);
@@ -338,6 +372,7 @@ export default function Home() {
 
   const handleCycleStart = () => {
     if (runningRef.current) return;
+    ensureAudio();
     resetState();
     const result = simulate(code);
     const steps = runSteps(code);
@@ -374,6 +409,7 @@ export default function Home() {
 
   const handleSingleBlock = () => {
     if (runningRef.current) return;
+    ensureAudio();
     if (sessionCodeRef.current !== code) {
       resetState();
       const result = simulate(code);
@@ -890,12 +926,30 @@ export default function Home() {
           >
             Reset
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !soundOn;
+              setSoundOn(next);
+              saveSoundOn(next);
+              if (next) ensureAudio();
+            }}
+            aria-label={soundOn ? "Mute crash sound" : "Unmute crash sound"}
+            title={soundOn ? "Mute crash sound" : "Unmute crash sound"}
+            className="shrink-0 rounded bg-zinc-700 px-2 py-2 font-mono text-xs font-semibold text-white hover:bg-zinc-600"
+          >
+            {soundOn ? "Sound: On" : "Sound: Off"}
+          </button>
         </div>
       </section>
 
       {/* Right 60%: 3D machine view */}
       <section className="relative w-[60%] bg-black">
-        <Machine flash={flash} activeOffset={findActiveOffset(code)} />
+        <Machine
+          flash={flash}
+          activeOffset={findActiveOffset(code)}
+          burst={burst}
+        />
         {crash && (
           <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-6">
             <div className="pointer-events-auto max-h-[85vh] w-[28rem] overflow-y-auto rounded-lg border border-red-600 bg-zinc-950/95 p-4 shadow-2xl">
