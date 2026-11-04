@@ -328,13 +328,16 @@ function execute(blocks: Block[], collectSteps: boolean): EngineResult {
     }
 
     if (b.m.includes(30)) {
-      // M30 ends the program after any same-block move completes.
+      // M30 ends the program after any same-block move completes, then
+      // resets modal state to power-on defaults.
       if (target === null) {
+        resetModal();
         return { crash: null, crashLine: null, cycleTimeSec, steps, finishedAtLine: b.line };
       }
       // Fall through: execute the move, then finish after the loop iteration.
       const res = runMove(b, target, moveMotion);
       if (res !== null) return res;
+      resetModal();
       return { crash: null, crashLine: null, cycleTimeSec, steps, finishedAtLine: b.line };
     }
     if (target === null) continue;
@@ -344,6 +347,17 @@ function execute(blocks: Block[], collectSteps: boolean): EngineResult {
   }
 
   return { crash: null, crashLine: null, cycleTimeSec, steps, finishedAtLine: null };
+
+  function resetModal(): void {
+    motion = "RAPID";
+    absolute = true;
+    offsetName = "G54";
+    g43Active = false;
+    g43SinceToolChange = false;
+    spindleOn = false;
+    spindleRpm = 0;
+    feed = DEFAULT_FEED_MMPM;
+  }
 
   function runMove(
     b: Block,
@@ -439,7 +453,7 @@ export function simulate(program: string): SimResult {
   return {
     ok: true,
     crash: null,
-    linesExecuted: totalLines,
+    linesExecuted: r.finishedAtLine ?? totalLines,
     cycleTimeSec: r.cycleTimeSec,
     parseErrors: [],
   };

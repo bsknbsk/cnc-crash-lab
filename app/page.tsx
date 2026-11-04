@@ -35,6 +35,39 @@ function extractFixedProgram(debrief: string): string | null {
   return program ? program : null;
 }
 
+function findActiveOffset(code: string): string {
+  return code.match(/G5[4-9]/)?.[0] ?? "G54";
+}
+
+const EXAM_STORAGE_KEY = "cnc-crash-lab-exam-completed";
+
+function loadCompletedIds(): number[] {
+  try {
+    const raw = localStorage.getItem(EXAM_STORAGE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((n) => typeof n === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCompletedIds(ids: number[]): void {
+  try {
+    localStorage.setItem(EXAM_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // Private mode etc: progress just won't persist.
+  }
+}
+
+function findM30Line(code: string): number | null {
+  let found: number | null = null;
+  code.split("\n").forEach((raw, i) => {
+    const stripped = raw.replace(/\(.*?\)/g, "").trim().toUpperCase();
+    if (/^M30(\s|$)/.test(stripped)) found = i + 1;
+  });
+  return found;
+}
+
 function parseDebriefLines(debrief: string): {
   crashLine: number | null;
   causeLine: number | null;
@@ -67,6 +100,7 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<"practice" | "exam">("practice");
   const [examFault, setExamFault] = useState<{
+    id: number;
     changed_line: number;
     hint: string;
     model: string;
@@ -77,6 +111,37 @@ export default function Home() {
     ok: boolean;
   } | null>(null);
   const [loadingExam, setLoadingExam] = useState(false);
+  const [completedIds, setCompletedIds] = useState<number[]>(loadCompletedIds);
+  const [examTotal, setExamTotal] = useState<number | null>(null);
+  const [examAllDone, setExamAllDone] = useState(false);
+  const [endNote, setEndNote] = useState<string | null>(null);
+  const cycleTimeRef = useRef(0);
+  const parseErrorRef = useRef(false);
+  const [costLoading, setCostLoading] = useState(false);
+  const [costInfo, setCostInfo] = useState<{
+    min_inr: number | null;
+    max_inr: number | null;
+    downtime_hours: number | null;
+    damaged_parts: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!crash) return;
+    let cancelled = false;
+    fetch(`/api/cost?type=${encodeURIComponent(crash.type)}`)
+      .then((res) => res.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d && typeof d.min_inr === "number") setCostInfo(d);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setCostLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [crash]);
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -164,6 +229,9 @@ export default function Home() {
     setUnclearLines(null);
     setVisionErrors(null);
     setExamNote(null);
+    setEndNote(null);
+    setCostLoading(false);
+    setCostInfo(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -174,6 +242,8 @@ export default function Home() {
     setCrash(c);
     setActiveLine(c.line);
     setFlash({ solid: c.collidedWith, key: Date.now() });
+    setCostLoading(true);
+    setCostInfo(null);
     setAsking(false);
     setTrace(null);
     setDebrief(null);
@@ -182,6 +252,9 @@ export default function Home() {
     setUnclearLines(null);
     setVisionErrors(null);
     setExamNote(null);
+    setEndNote(null);
+    setCostLoading(false);
+    setCostInfo(null);
   };
 
   const timerRef = useRef<number | null>(null);
@@ -271,11 +344,26 @@ export default function Home() {
     stepsRef.current = steps;
     crashRef.current = result.crash;
     sessionCodeRef.current = code;
+    cycleTimeRef.current = result.cycleTimeSec;
+    parseErrorRef.current = result.parseErrors.length > 0;
     playSteps(steps, () => {
       nextLineRef.current = code.split("\n").length + 1;
       if (crashRef.current) {
         showCrash(crashRef.current);
-      } else if (tab === "exam" && examFault) {
+        return;
+      }
+      if (result.parseErrors.length > 0) return;
+      const m30 = findM30Line(code);
+      if (m30 !== null) setActiveLine(m30);
+      setEndNote(
+        `Program end M30, cycle time ${result.cycleTimeSec.toFixed(1)}s`,
+      );
+      if (tab === "exam" && examFault) {
+        if (!completedIds.includes(examFault.id)) {
+          const next = [...completedIds, examFault.id];
+          setCompletedIds(next);
+          saveCompletedIds(next);
+        }
         setExamNote({
           text: `Passed: mistake found on line ${examFault.changed_line}`,
           ok: true,
@@ -292,12 +380,23 @@ export default function Home() {
       stepsRef.current = runSteps(code);
       crashRef.current = result.crash;
       sessionCodeRef.current = code;
+      cycleTimeRef.current = result.cycleTimeSec;
+      parseErrorRef.current = result.parseErrors.length > 0;
     }
     const total = code.split("\n").length;
     const line = nextLineRef.current;
     if (line > total) return;
     if (crashRef.current && line > crashRef.current.line) return;
     setActiveLine(line);
+    if (
+      !crashRef.current &&
+      !parseErrorRef.current &&
+      line === findM30Line(code)
+    ) {
+      setEndNote(
+        `Program end M30, cycle time ${cycleTimeRef.current.toFixed(1)}s`,
+      );
+    }
     const segs = (stepsRef.current ?? []).filter((s) => s.line === line);
     nextLineRef.current = line + 1;
     if (segs.length === 0) {
@@ -347,6 +446,9 @@ export default function Home() {
     setUnclearLines(null);
     setVisionErrors(null);
     setExamNote(null);
+    setEndNote(null);
+    setCostLoading(false);
+    setCostInfo(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -411,27 +513,41 @@ export default function Home() {
     if (loadingExam) return;
     setLoadingExam(true);
     try {
-      const res = await fetch("/api/exam");
+      const res = await fetch(
+        `/api/exam?exclude=${completedIds.join(",")}`,
+      );
       const data = (await res.json()) as {
-        faulty_program?: string;
-        changed_line?: number;
-        hint?: string;
-        model?: string;
-        crash_type?: string;
+        question?: {
+          id: number;
+          faulty_program: string;
+          changed_line: number;
+          hint: string;
+          model: string;
+          crash_type: string;
+        } | null;
+        total?: number;
         error?: string;
       };
-      if (!res.ok || data.error || typeof data.faulty_program !== "string") {
+      if (!res.ok || data.error) {
         throw new Error(data.error ?? "No exam questions");
+      }
+      if (typeof data.total === "number") setExamTotal(data.total);
+      if (!data.question) {
+        setExamAllDone(true);
+        setExamNote({ text: "All questions completed", ok: true });
+        return;
       }
       resetState();
       setTab("exam");
+      setExamAllDone(false);
       setProgramName("CUSTOM");
-      setCode(data.faulty_program);
+      setCode(data.question.faulty_program);
       setExamFault({
-        changed_line: data.changed_line ?? 0,
-        hint: data.hint ?? "",
-        model: data.model ?? "",
-        crash_type: data.crash_type ?? "",
+        id: data.question.id,
+        changed_line: data.question.changed_line,
+        hint: data.question.hint,
+        model: data.question.model,
+        crash_type: data.question.crash_type,
       });
       setToolTip(0, 0, 200);
     } catch {
@@ -439,6 +555,13 @@ export default function Home() {
     } finally {
       setLoadingExam(false);
     }
+  };
+
+  const handleResetProgress = () => {
+    setCompletedIds([]);
+    saveCompletedIds([]);
+    setExamAllDone(false);
+    setExamNote(null);
   };
 
   const syncScroll = () => {
@@ -457,7 +580,7 @@ export default function Home() {
             CNC Crash Lab
           </h1>
           <p className="font-mono text-xs text-zinc-500">
-            Fanuc 0i style · G21 · mm
+            ISO Programming · G21 · mm
           </p>
         </header>
 
@@ -544,15 +667,34 @@ export default function Home() {
               {loadingExam ? "Loading…" : "New question"}
             </button>
           )}
+          {tab === "exam" && (
+            <span className="ml-auto font-mono text-xs text-zinc-400">
+              Questions completed: {completedIds.length} /{" "}
+              {examTotal ?? "…"}
+            </span>
+          )}
+          {tab === "exam" && examAllDone && (
+            <button
+              type="button"
+              onClick={handleResetProgress}
+              className="shrink-0 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-100 hover:bg-zinc-800"
+            >
+              Reset progress
+            </button>
+          )}
         </div>
         {tab === "exam" && (
           <div className="border-b border-zinc-800 px-4 py-2">
-            {examFault ? (
+            {examAllDone ? (
+              <p className="font-mono text-xs font-semibold text-green-400">
+                All questions completed
+              </p>
+            ) : examFault ? (
               <>
-                <p className="font-mono text-xs text-zinc-400">
+                <p className="font-mono text-[13px] text-gray-100">
                   Hint: {examFault.hint}
                 </p>
-                <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                <p className="mt-1 font-mono text-xs text-gray-300">
                   Model: {examFault.model} · Find the injected fault, fix it in
                   the editor, then press Cycle Start.
                 </p>
@@ -686,6 +828,15 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Program end note */}
+        {endNote !== null && (
+          <div className="border-t border-zinc-800 px-4 py-2">
+            <p className="font-mono text-xs font-semibold text-zinc-100">
+              {endNote}
+            </p>
+          </div>
+        )}
+
         {/* Exam result */}
         {examNote !== null && (
           <div className="border-t border-zinc-800 px-4 py-2">
@@ -746,7 +897,7 @@ export default function Home() {
 
       {/* Right 60%: 3D machine view */}
       <section className="relative w-[60%] bg-black">
-        <Machine flash={flash} />
+        <Machine flash={flash} activeOffset={findActiveOffset(code)} />
         {crash && (
           <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-6">
             <div className="pointer-events-auto max-h-[85vh] w-[28rem] overflow-y-auto rounded-lg border border-red-600 bg-zinc-950/95 p-4 shadow-2xl">
@@ -759,6 +910,27 @@ export default function Home() {
               <pre className="mt-2 overflow-x-auto rounded bg-zinc-900 p-2 font-mono text-xs text-zinc-100">
                 {crash.block}
               </pre>
+              {costLoading && (
+                <p className="mt-3 animate-pulse font-mono text-sm font-bold text-red-400">
+                  Loading repair estimate…
+                </p>
+              )}
+              {costInfo && (
+                <>
+                  <p className="mt-3 font-mono text-lg font-bold text-red-400">
+                    Repair: ₹
+                    {(costInfo.min_inr ?? 0).toLocaleString("en-IN")} to ₹
+                    {(costInfo.max_inr ?? 0).toLocaleString("en-IN")} |
+                    Downtime: {costInfo.downtime_hours} h
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-zinc-300">
+                    {costInfo.damaged_parts}
+                  </p>
+                  <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                    Approximate, based on shop-floor experience.
+                  </p>
+                </>
+              )}
               <button
                 type="button"
                 onClick={handleAsk}

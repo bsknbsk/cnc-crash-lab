@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { Html, Line, OrbitControls } from "@react-three/drei";
 
 // ---------------------------------------------------------------------------
 // Machine coordinate system (mm, 1 unit = 1 mm):
@@ -74,10 +74,10 @@ function Tool({ tip }: { tip: ToolTip }) {
   );
   return (
     <group>
-      {/* T1 flat end mill, silver cylinder from tip up 50 mm */}
+      {/* T1 flat end mill, bright brown cylinder from tip up 50 mm */}
       <mesh position={toolCenter} castShadow>
         <cylinderGeometry args={[TOOL_RADIUS, TOOL_RADIUS, TOOL_STICKOUT, 32]} />
-        <meshStandardMaterial color="#c0c0c0" metalness={0.9} roughness={0.3} />
+        <meshStandardMaterial color="#C8792E" metalness={0.9} roughness={0.3} />
       </mesh>
       {/* Holder, diameter 40 x height 40, sitting on top of the tool */}
       <mesh position={holderCenter} castShadow>
@@ -90,7 +90,57 @@ function Tool({ tip }: { tip: ToolTip }) {
   );
 }
 
-export default function Machine({ flash }: { flash?: FlashState }) {
+// Stored work-offset origins in machine Z (G54 = identity).
+const OFFSET_Z: Record<string, number> = { G54: 0, G55: -25 };
+
+function Datum({
+  name,
+  machineZ,
+  tag,
+  labelClass,
+}: {
+  name: string;
+  machineZ: number;
+  tag: string;
+  labelClass: string;
+}) {
+  const o = toScene(0, 0, machineZ);
+  return (
+    <group>
+      <mesh position={o}>
+        <sphereGeometry args={[3, 16, 16]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      {/* 30 mm triad: X red, Y green, Z blue */}
+      <Line points={[o, toScene(30, 0, machineZ)]} color="#ef4444" lineWidth={2} />
+      <Line points={[o, toScene(0, 30, machineZ)]} color="#22c55e" lineWidth={2} />
+      <Line
+        points={[o, toScene(0, 0, machineZ + 30)]}
+        color="#3b82f6"
+        lineWidth={2}
+      />
+      <Html
+        position={toScene(0, 0, machineZ + 16)}
+        center
+        className="pointer-events-none select-none"
+      >
+        <div
+          className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[10px] font-bold text-white ${labelClass}`}
+        >
+          {name} X0 Y0 Z0 ({tag})
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+export default function Machine({
+  flash,
+  activeOffset = "G54",
+}: {
+  flash?: FlashState;
+  activeOffset?: string;
+}) {
   const tip = useToolTip();
   const [flashOn, setFlashOn] = useState(false);
 
@@ -119,6 +169,9 @@ export default function Machine({ flash }: { flash?: FlashState }) {
   const viseFlash = flashOn && flash?.solid === "VISE";
   const tableFlash = flashOn && flash?.solid === "TABLE";
 
+  const activeZ = OFFSET_Z[activeOffset] ?? 0;
+  const showBuried = activeOffset !== "G54";
+
   return (
     <Canvas
       shadows
@@ -140,8 +193,42 @@ export default function Machine({ flash }: { flash?: FlashState }) {
           emissive={stockFlash ? "#7f1d1d" : "#000000"}
           roughness={0.5}
           metalness={0.1}
+          transparent={showBuried}
+          opacity={showBuried ? 0.5 : 1}
         />
       </mesh>
+
+      {/* G54 datum always at the stock top front-left corner */}
+      <Datum name="G54" machineZ={0} tag="setup" labelClass="bg-green-600" />
+
+      {/* Active non-G54 offset: buried datum + dashed drop line */}
+      {showBuried && (
+        <group>
+          <Datum
+            name={activeOffset}
+            machineZ={activeZ}
+            tag="ACTIVE"
+            labelClass="bg-red-600"
+          />
+          <Line
+            points={[toScene(0, 0, 0), toScene(0, 0, activeZ)]}
+            color="#ef4444"
+            lineWidth={2}
+            dashed
+            dashSize={2}
+            gapSize={2}
+          />
+          <Html
+            position={toScene(10, 0, activeZ / 2)}
+            center
+            className="pointer-events-none select-none"
+          >
+            <div className="font-mono text-[10px] font-bold whitespace-nowrap text-red-400">
+              {Math.abs(activeZ)} mm
+            </div>
+          </Html>
+        </group>
+      )}
 
       {/* Vise jaws: X -10..110, Z -40..-10, grey */}
       {/* Front jaw: Y -15..0 */}

@@ -54,6 +54,44 @@ for (const [type, prog] of Object.entries(VARIANTS) as [CrashType, string][]) {
   check(`${type}: steps stop at crash line`, vsteps.every((s) => s.line <= (r.crash?.line ?? 1e9)), "");
 }
 
+// Clean programs must execute to M30: every line executed, last block M30.
+// MIDS exercises M-only lines (M08/M09/M05), G28 homing and the G90 after it.
+const MIDS = `G21 G90
+G54
+T1 M06
+S3000 M03
+G00 X50 Y40
+G43 Z25 H01
+G00 Z5
+M08
+M09
+M05
+G91 G28 Z0
+G90
+M30`;
+const CLEAN_PROGRAMS: Array<[string, string]> = [
+  ["GOOD", GOOD],
+  ["MIDS", MIDS],
+];
+for (const [name, prog] of CLEAN_PROGRAMS) {
+  const r = simulate(prog);
+  const total = prog.split("\n").length;
+  check(
+    `${name}: linesExecuted equals line count`,
+    r.ok === true && r.linesExecuted === total,
+    `ok=${r.ok} linesExecuted=${r.linesExecuted} total=${total}`,
+  );
+  const lastBlock = prog
+    .split("\n")
+    [r.linesExecuted - 1]?.replace(/\(.*?\)/g, "")
+    .trim();
+  check(
+    `${name}: last executed block is M30`,
+    lastBlock === "M30",
+    `got ${JSON.stringify(lastBlock)}`,
+  );
+}
+
 const wwo = simulate(WRONG_WORK_OFFSET);
 check(
   "WRONG_WORK_OFFSET actualTarget.z = -20",
