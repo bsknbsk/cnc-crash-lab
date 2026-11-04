@@ -1,5 +1,4 @@
 import Link from "next/link";
-import MiniMachine from "../components/landing/MiniMachine";
 import s from "./landing.module.css";
 
 const FEATURES: { title: string; tag: string; desc: string }[] = [
@@ -105,8 +104,10 @@ const STACK: { label: string; value: string; detail: string }[] = [
 function CrosshairIcon() {
   return (
     <svg
-      className={s.brandMark}
+      width="18"
+      height="18"
       viewBox="0 0 18 18"
+      className={s.brandMark}
       aria-hidden="true"
       focusable="false"
     >
@@ -119,11 +120,53 @@ function CrosshairIcon() {
         stroke="currentColor"
         strokeWidth="2"
       />
-      <path
-        d="M9 4v10M4 9h10"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
+      <path d="M9 4v10M4 9h10" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+// Static illustration of the machine cell: table, vise, stock, tool and the
+// green G54 part-zero marker. Plain SVG, no WebGL.
+function MachineSketch() {
+  return (
+    <svg
+      viewBox="0 0 400 300"
+      width="400"
+      height="300"
+      className={s.previewSvg}
+      role="img"
+      aria-label="Machine cell: table, vise, aluminium stock, end mill and G54 part zero"
+    >
+      {/* table */}
+      <rect x="20" y="248" width="360" height="20" fill="#374151" />
+      {/* vise base + jaws */}
+      <rect x="110" y="212" width="180" height="36" fill="#9ca3af" />
+      <rect x="110" y="188" width="28" height="60" fill="#9ca3af" />
+      <rect x="262" y="188" width="28" height="60" fill="#9ca3af" />
+      {/* stock */}
+      <rect x="138" y="182" width="124" height="30" fill="#2563eb" />
+      {/* faced strips on the stock top */}
+      <rect x="138" y="182" width="124" height="4" fill="#c9d4da" />
+      {/* end mill + holder + spindle */}
+      <rect x="192" y="102" width="16" height="80" fill="#D9A066" />
+      <rect x="184" y="52" width="32" height="50" fill="#C49060" />
+      <rect x="170" y="12" width="60" height="40" fill="#1f2937" />
+      {/* G54 datum triad at the stock top front-left corner */}
+      <circle cx="138" cy="182" r="5" fill="#ffffff" />
+      <line x1="138" y1="182" x2="168" y2="182" stroke="#ef4444" strokeWidth="2" />
+      <line x1="138" y1="182" x2="138" y2="152" stroke="#3b82f6" strokeWidth="2" />
+      <rect x="146" y="150" width="34" height="16" rx="3" fill="#2f7a4f" />
+      <text
+        x="163"
+        y="162"
+        textAnchor="middle"
+        fontFamily="monospace"
+        fontSize="10"
+        fontWeight="bold"
+        fill="#ffffff"
+      >
+        G54
+      </text>
     </svg>
   );
 }
@@ -157,8 +200,8 @@ export default function LandingPage() {
               <p className={s.eyebrow}>ISO G-code training simulator</p>
               <h1 className={s.h1}>Crash the virtual machine first</h1>
               <p className={s.lede}>
-                CNC Crash Lab runs your program on a 3-axis milling machine
-                in the browser. When a mistake causes a crash, it shows the
+                CNC Crash Lab runs your program on a 3-axis milling machine in
+                the browser. When a mistake causes a crash, it shows the
                 approximate repair cost and downtime, explains the cause, and
                 proves the fix before you try again.
               </p>
@@ -175,7 +218,14 @@ export default function LandingPage() {
               </p>
             </div>
             <div>
-              <MiniMachine />
+              <div className={s.previewBox}>
+                <MachineSketch />
+              </div>
+              <p className={s.caption}>
+                Miniature of the app&apos;s machine cell: table, vise,
+                aluminium stock and a 10 mm end mill. Green marker: G54 part
+                zero.
+              </p>
             </div>
           </div>
         </section>
@@ -215,9 +265,7 @@ export default function LandingPage() {
           <ol className={s.steps}>
             {STEPS.map((step, i) => (
               <li key={step.title}>
-                <span className={s.stepNum}>
-                  0{i + 1}
-                </span>
+                <span className={s.stepNum}>0{i + 1}</span>
                 <h3 className={s.stepTitle}>{step.title}</h3>
                 <p className={s.stepDesc}>{step.desc}</p>
               </li>
@@ -252,7 +300,9 @@ export default function LandingPage() {
       </main>
 
       <footer className={`${s.inner} ${s.footer}`}>
-        <p>CNC Crash Lab · Built for the Meta Global AI Developer Hackathon 2026</p>
+        <p>
+          CNC Crash Lab · Built for the Meta Global AI Developer Hackathon 2026
+        </p>
         <p>Repair costs are approximate reference values for training.</p>
       </footer>
     </div>
