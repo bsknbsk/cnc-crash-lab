@@ -117,31 +117,37 @@ export default function Home() {
   const [endNote, setEndNote] = useState<string | null>(null);
   const cycleTimeRef = useRef(0);
   const parseErrorRef = useRef(false);
-  const [costLoading, setCostLoading] = useState(false);
-  const [costInfo, setCostInfo] = useState<{
-    min_inr: number | null;
-    max_inr: number | null;
-    downtime_hours: number | null;
-    damaged_parts: string | null;
-  } | null>(null);
+  const [costMap, setCostMap] = useState<Record<
+    string,
+    {
+      min_inr: number;
+      max_inr: number;
+      downtime_hours: number;
+      damaged_parts: string;
+    }
+  > | null>(null);
+  const [costFailed, setCostFailed] = useState(false);
 
+  // Preload the whole repair-cost table once; the crash card reads from it.
   useEffect(() => {
-    if (!crash) return;
     let cancelled = false;
-    fetch(`/api/cost?type=${encodeURIComponent(crash.type)}`)
+    fetch("/api/cost")
       .then((res) => res.json())
-      .then((d) => {
-        if (cancelled) return;
-        if (d && typeof d.min_inr === "number") setCostInfo(d);
+      .then((rows) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        const map: NonNullable<typeof costMap> = {};
+        for (const q of rows) {
+          if (q && typeof q.crash_type === "string") map[q.crash_type] = q;
+        }
+        setCostMap(map);
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setCostLoading(false);
+      .catch(() => {
+        if (!cancelled) setCostFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [crash]);
+  }, []);
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -230,8 +236,6 @@ export default function Home() {
     setVisionErrors(null);
     setExamNote(null);
     setEndNote(null);
-    setCostLoading(false);
-    setCostInfo(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -242,8 +246,6 @@ export default function Home() {
     setCrash(c);
     setActiveLine(c.line);
     setFlash({ solid: c.collidedWith, key: Date.now() });
-    setCostLoading(true);
-    setCostInfo(null);
     setAsking(false);
     setTrace(null);
     setDebrief(null);
@@ -253,8 +255,6 @@ export default function Home() {
     setVisionErrors(null);
     setExamNote(null);
     setEndNote(null);
-    setCostLoading(false);
-    setCostInfo(null);
   };
 
   const timerRef = useRef<number | null>(null);
@@ -447,8 +447,6 @@ export default function Home() {
     setVisionErrors(null);
     setExamNote(null);
     setEndNote(null);
-    setCostLoading(false);
-    setCostInfo(null);
     stepsRef.current = null;
     crashRef.current = null;
     sessionCodeRef.current = null;
@@ -910,27 +908,38 @@ export default function Home() {
               <pre className="mt-2 overflow-x-auto rounded bg-zinc-900 p-2 font-mono text-xs text-zinc-100">
                 {crash.block}
               </pre>
-              {costLoading && (
-                <p className="mt-3 animate-pulse font-mono text-sm font-bold text-red-400">
-                  Loading repair estimate…
-                </p>
-              )}
-              {costInfo && (
-                <>
-                  <p className="mt-3 font-mono text-lg font-bold text-red-400">
-                    Repair: ₹
-                    {(costInfo.min_inr ?? 0).toLocaleString("en-IN")} to ₹
-                    {(costInfo.max_inr ?? 0).toLocaleString("en-IN")} |
-                    Downtime: {costInfo.downtime_hours} h
-                  </p>
-                  <p className="mt-1 font-mono text-xs text-zinc-300">
-                    {costInfo.damaged_parts}
-                  </p>
-                  <p className="mt-1 font-mono text-[11px] text-zinc-500">
-                    Approximate, based on shop-floor experience.
-                  </p>
-                </>
-              )}
+              {(() => {
+                const row = costMap?.[crash.type];
+                if (!costMap && !costFailed) {
+                  return (
+                    <p className="mt-3 animate-pulse font-mono text-sm font-bold text-red-400">
+                      Loading repair estimate…
+                    </p>
+                  );
+                }
+                if (!row) {
+                  return (
+                    <p className="mt-3 font-mono text-sm font-bold text-red-400">
+                      Repair cost unavailable
+                    </p>
+                  );
+                }
+                return (
+                  <>
+                    <p className="mt-3 font-mono text-lg font-bold text-red-400">
+                      Repair: ₹{row.min_inr.toLocaleString("en-IN")} to ₹
+                      {row.max_inr.toLocaleString("en-IN")} | Downtime:{" "}
+                      {row.downtime_hours} h
+                    </p>
+                    <p className="mt-1 font-mono text-sm text-zinc-100">
+                      {row.damaged_parts}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                      Approximate, based on shop-floor experience.
+                    </p>
+                  </>
+                );
+              })()}
               <button
                 type="button"
                 onClick={handleAsk}
