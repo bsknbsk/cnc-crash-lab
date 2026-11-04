@@ -1,5 +1,27 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import s from "./landing.module.css";
+
+// Inline button styles so the calls to action render even if the
+// stylesheet fails to load.
+const OPEN_APP_STYLE: CSSProperties = {
+  display: "inline-block",
+  background: "#F0A33A",
+  color: "#1A1205",
+  padding: "10px 18px",
+  borderRadius: 4,
+  fontWeight: 600,
+  textDecoration: "none",
+};
+
+const HOW_STYLE: CSSProperties = {
+  display: "inline-block",
+  border: "1px solid #93A2AB",
+  color: "inherit",
+  padding: "10px 18px",
+  borderRadius: 4,
+  textDecoration: "none",
+};
 
 const FEATURES: { title: string; tag: string; desc: string }[] = [
   {
@@ -186,7 +208,7 @@ export default function LandingPage() {
               <Link href="#how">How it works</Link>{" "}
               <Link href="#stack">Built with</Link>
             </span>
-            <Link href="/app" className={s.btnPrimary}>
+            <Link href="/app" style={OPEN_APP_STYLE}>
               Open the app
             </Link>
           </nav>
@@ -206,12 +228,12 @@ export default function LandingPage() {
                 proves the fix before you try again.
               </p>
               <div className={s.btnRow}>
-                <Link href="/app" className={s.btnPrimary}>
+                <Link href="/app" style={OPEN_APP_STYLE}>
                   Open the app
                 </Link>
-                <Link href="#how" className={s.btnOutline}>
+                <a href="#how" style={HOW_STYLE}>
                   See how it works
-                </Link>
+                </a>
               </div>
               <p className={s.fineprint}>
                 Runs in any modern browser. Nothing to install.
@@ -293,7 +315,7 @@ export default function LandingPage() {
 
         <section className={`${s.inner} ${s.band}`}>
           <h2 className={s.h2}>Run your first program</h2>
-          <Link href="/app" className={s.btnPrimary}>
+          <Link href="/app" style={OPEN_APP_STYLE}>
             Open the app
           </Link>
         </section>

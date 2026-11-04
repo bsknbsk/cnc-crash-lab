@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],
         as: "*.css",
+        // Leave *.module.css to Next's default CSS Modules pipeline so the
+        // class-name mapping is generated instead of `undefined`.
+        condition: { not: { path: /\.module\.css$/ } },
       },
     },
   },
