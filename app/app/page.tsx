@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import Link from "next/link";
+import type { CSSProperties } from "react";
 import Machine, {
   setToolTip,
   type FlashState,
@@ -13,6 +15,17 @@ import type { CrashEvent } from "../../lib/sim/types";
 
 const PROGRAMS: Record<string, string> = { GOOD, ...VARIANTS };
 const PROGRAM_NAMES = ["GOOD", ...Object.keys(VARIANTS)];
+
+const HOME_LINK_STYLE: CSSProperties = {
+  display: "inline-block",
+  padding: "6px 12px",
+  border: "1px solid #93A2AB",
+  borderRadius: 4,
+  color: "inherit",
+  fontSize: 14,
+  textDecoration: "none",
+  marginRight: 12,
+};
 
 // Editor metrics: text-sm (14px) + leading-6 (24px) + py-3 (12px top pad).
 const LINE_H = 24;
@@ -609,13 +622,18 @@ export default function Home() {
     <main className="flex h-screen w-full">
       {/* Left 40%: program select + editor + control panel */}
       <section className="flex w-[40%] flex-col border-r border-zinc-800 bg-zinc-950">
-        <header className="border-b border-zinc-800 px-4 py-2">
-          <h1 className="font-mono text-sm font-semibold text-zinc-100">
-            CNC Crash Lab
-          </h1>
-          <p className="font-mono text-xs text-zinc-500">
-            ISO Programming · G21 · mm
-          </p>
+        <header className="flex items-center border-b border-zinc-800 px-4 py-2">
+          <Link href="/" style={HOME_LINK_STYLE}>
+            ← Home
+          </Link>
+          <div>
+            <h1 className="font-mono text-sm font-semibold text-zinc-100">
+              CNC Crash Lab
+            </h1>
+            <p className="font-mono text-xs text-zinc-500">
+              ISO Programming · G21 · mm
+            </p>
+          </div>
         </header>
 
         {/* Program dropdown */}
